@@ -51,13 +51,14 @@
         .modal { transition: opacity 0.3s ease, pointer-events 0.3s ease; opacity: 0; pointer-events: none; }
         .modal.open { opacity: 1; pointer-events: auto; }
         
-        /* Toast Notification */
+        /* Toast Notification - Z-Index Aumentado */
         #toast {
             visibility: hidden;
-            min-width: 250px;
+            min-width: 280px;
             transform: translateX(-50%) translateY(-20px);
             opacity: 0;
-            transition: all 0.5s, transform 0.5s;
+            transition: all 0.3s ease-in-out;
+            z-index: 100 !important; /* Força ficar acima de tudo */
         }
         #toast.show {
             visibility: visible;
@@ -72,9 +73,9 @@
 </head>
 <body class="text-gray-800 pb-20">
 
-    <div id="toast" class="fixed top-5 left-1/2 z-[60] bg-gray-800 text-white px-6 py-3 rounded-full shadow-xl flex items-center gap-3">
-        <i class="fa-solid fa-check-circle text-green-400"></i>
-        <span id="toastMessage" class="text-sm font-bold">Sucesso!</span>
+    <div id="toast" class="fixed top-5 left-1/2 bg-gray-800 text-white px-6 py-4 rounded-full shadow-2xl flex items-center gap-3">
+        <i class="fa-solid fa-check-circle text-green-400 text-lg"></i>
+        <span id="toastMessage" class="text-sm font-bold tracking-wide">Sucesso!</span>
     </div>
 
     <header class="fixed top-0 w-full z-40 glass-effect shadow-sm">
@@ -128,7 +129,7 @@
                 </select>
             </div>
             <div id="searchResetBtn" class="hidden mt-2 text-center">
-                <button class="text-xs text-pink-600 font-bold underline">Limpar filtros e voltar para Hoje</button>
+                <button class="text-xs text-pink-600 font-bold underline cursor-pointer">Limpar filtros e voltar para Hoje</button>
             </div>
         </div>
 
@@ -274,8 +275,6 @@
         const taskCountEl = document.getElementById('taskCount');
         const modal = document.getElementById('taskModal');
         const form = document.getElementById('taskForm');
-        const toast = document.getElementById('toast');
-        const toastMessage = document.getElementById('toastMessage');
         
         // Elementos de Pesquisa
         const searchInput = document.getElementById('searchInput');
@@ -289,6 +288,15 @@
         const inpPaid = document.getElementById('inpPaid');
         const displayRemaining = document.getElementById('displayRemaining');
 
+        // --- HELPERS DE DATA CORRIGIDOS ---
+        // Pega a string YYYY-MM-DD local sem converter pra UTC (que causa erro de dia)
+        function getLocalYMD(dateObj) {
+            const y = dateObj.getFullYear();
+            const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const d = String(dateObj.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        }
+
         // Escutar Mudanças no Banco de Dados
         const q = query(taskCollection, orderBy("date", "asc"));
         onSnapshot(q, (snapshot) => {
@@ -297,13 +305,16 @@
                 ...doc.data()
             }));
             renderCalendar();
-            renderTasks(); // Renderiza usando o estado atual (data ou pesquisa)
+            renderTasks();
             updateHeaderStats();
         });
 
         // --- FUNÇÕES DE VISUALIZAÇÃO ---
 
         function showToast(message) {
+            const toast = document.getElementById('toast');
+            const toastMessage = document.getElementById('toastMessage');
+            
             toastMessage.innerText = message;
             toast.classList.add('show');
             setTimeout(() => {
@@ -330,7 +341,10 @@
             }
 
             for (let i = 1; i <= daysInMonth; i++) {
-                const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+                // Criar data local correta
+                const thisDate = new Date(year, month, i);
+                const dateStr = getLocalYMD(thisDate);
+                
                 const div = document.createElement('div');
                 div.className = 'calendar-day';
                 div.innerText = i;
@@ -338,14 +352,14 @@
                 const hasTask = allTasks.some(t => t.date === dateStr);
                 if (hasTask) div.classList.add('has-task');
 
-                const selStr = formatDateISO(selectedDate);
+                const selStr = getLocalYMD(selectedDate);
                 if (dateStr === selStr) div.classList.add('active');
 
                 div.addEventListener('click', () => {
                     selectedDate = new Date(year, month, i);
-                    // Ao clicar no calendário, limpamos a pesquisa para focar no dia
-                    clearFilters(false); 
-                    renderCalendar();
+                    clearFilters(false); // Limpa busca mas não re-renderiza ainda
+                    renderCalendar(); // Atualiza o "active" visual
+                    renderTasks(); // Filtra as tarefas
                 });
 
                 calendarGrid.appendChild(div);
@@ -379,7 +393,8 @@
 
             } else {
                 // MODO CALENDÁRIO: Apenas o dia selecionado
-                const dateStr = formatDateISO(selectedDate);
+                // Usando a nova função getLocalYMD para comparar corretamente
+                const dateStr = getLocalYMD(selectedDate);
                 filteredTasks = allTasks.filter(t => t.date === dateStr);
                 
                 const day = selectedDate.getDate();
@@ -410,9 +425,9 @@
                 else if(task.status === 'Feito') { statusColor = 'bg-green-100 text-green-600'; icon = 'fa-check'; }
                 else if(task.status === 'Passou a data') { statusColor = 'bg-orange-100 text-orange-600'; icon = 'fa-calendar-xmark'; }
 
-                // Formatar data brasileira para exibir no card se estiver pesquisando
-                const dateObj = new Date(task.date + 'T12:00:00'); // Compensar fuso
-                const dateBr = `${dateObj.getDate()}/${dateObj.getMonth()+1}`;
+                // Exibir data formatada
+                const dateParts = task.date.split('-'); // YYYY-MM-DD
+                const dateBr = `${dateParts[2]}/${dateParts[1]}`; // DD/MM
 
                 const card = document.createElement('div');
                 card.className = 'bg-white p-4 rounded-xl shadow-sm border border-gray-100 relative group overflow-hidden transition hover:shadow-md cursor-pointer';
@@ -459,7 +474,7 @@
             filterType.value = '';
             filterStatus.value = '';
             if(shouldRender) {
-                renderCalendar(); // Restaura o active no dia
+                renderCalendar(); 
                 renderTasks();
             }
         }
@@ -495,8 +510,8 @@
             } else {
                 document.getElementById('modalTitle').innerText = 'Nova Tarefa';
                 document.getElementById('taskId').value = '';
-                // Se estiver filtrando, não pré-preenche data, senão usa data selecionada
-                document.getElementById('inpDate').value = formatDateISO(selectedDate);
+                // Preenche com a data selecionada usando o helper local
+                document.getElementById('inpDate').value = getLocalYMD(selectedDate);
                 btnDelete.classList.add('hidden');
             }
             modal.classList.add('open');
@@ -534,7 +549,7 @@
                 closeModalFunc();
             } catch (error) {
                 console.error("Erro ao salvar:", error);
-                alert("Erro ao salvar tarefa.");
+                alert("Erro ao salvar tarefa. Verifique o console.");
             }
         });
 
@@ -559,10 +574,6 @@
         function updateHeaderStats() {
             const totalPaid = allTasks.reduce((acc, t) => acc + (parseFloat(t.paid) || 0), 0);
             document.getElementById('headerTotalPaid').innerText = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPaid);
-        }
-
-        function formatDateISO(date) {
-            return date.toISOString().split('T')[0];
         }
 
         // Listeners Globais
